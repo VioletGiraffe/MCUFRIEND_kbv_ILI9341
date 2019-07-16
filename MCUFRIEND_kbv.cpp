@@ -260,8 +260,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 	uint16_t ret, dummy, _MR = _MW;
 	int16_t n = w * h, row = 0, col = 0;
 	uint8_t r, g, b, tmp;
-	if (_lcd_ID == 0x1602)
-		_MR = 0x2E;
+
 	setAddrWindow(x, y, x + w - 1, y + h - 1);
 	while (n > 0)
 	{
@@ -277,7 +276,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 		{
 			;
 		}
-		else if ((_lcd_capable & MIPI_DCS_REV1) || _lcd_ID == 0x1289)
+		else if ((_lcd_capable & MIPI_DCS_REV1))
 		{
 			READ_8(r);
 		}
@@ -285,8 +284,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 		{
 			READ_16(dummy);
 		}
-		if (_lcd_ID == 0x1511)
-			READ_8(r); //extra dummy for R61511
+
 		while (n)
 		{
 			if (_lcd_capable & READ_24BITS)
@@ -361,38 +359,8 @@ void MCUFRIEND_kbv::setRotation(uint8_t r)
 		val ^= 0x08;
 	if (_lcd_capable & MIPI_DCS_REV1)
 	{
-		if (_lcd_ID == 0x6814)
-		{										//.kbv my weird 0x9486 might be 68140
-			GS = (val & 0x80) ? (1 << 6) : 0;   //MY
-			SS_v = (val & 0x40) ? (1 << 5) : 0; //MX
-			val &= 0x28;						//keep MV, BGR, MY=0, MX=0, ML=0
-			d[0] = 0;
-			d[1] = GS | SS_v | 0x02; //MY, MX
-			d[2] = 0x3B;
-			WriteCmdParamN(0xB6, 3, d);
-			goto common_MC;
-		}
-		else if (_lcd_ID == 0x1963 || _lcd_ID == 0x9481 || _lcd_ID == 0x1511)
-		{
-			if (val & 0x80)
-				val |= 0x01; //GS
-			if ((val & 0x40))
-				val |= 0x02; //SS
-			if (_lcd_ID == 0x1963)
-				val &= ~0xC0;
-			if (_lcd_ID == 0x9481)
-				val &= ~0xD0;
-			if (_lcd_ID == 0x1511)
-			{
-				val &= ~0x10; //remove ML
-				val |= 0xC0;  //force penguin 180 rotation
-			}
-			//            val &= (_lcd_ID == 0x1963) ? ~0xC0 : ~0xD0; //MY=0, MX=0 with ML=0 for ILI9481
-			goto common_MC;
-		}
 	common_MC:
 		_MC = 0x2A, _MP = 0x2B, _MW = 0x2C, _SC = 0x2A, _EC = 0x2A, _SP = 0x2B, _EP = 0x2B;
-	common_BGR:
 		WriteCmdParamN(0x36, 1, &val);
 		_lcd_madctl = val;
 		//	    if (_lcd_ID	== 0x1963) WriteCmdParamN(0x13, 0, NULL);   //NORMAL mode
@@ -1013,23 +981,22 @@ void MCUFRIEND_kbv::begin(uint16_t ID)
 	table8_ads = ILI9341_regValues_2_4, table_size = sizeof(ILI9341_regValues_2_4); //
 		
 	_lcd_rev = ((_lcd_capable & REV_SCREEN) != 0);
-	if (table8_ads != NULL)
-	{
-		static const uint8_t reset_off[] PROGMEM = {
-			0x01, 0,			//Soft Reset
-			TFTLCD_DELAY8, 150, // .kbv will power up with ONLY reset, sleep out, display on
-			0x28, 0,			//Display Off
-			0x3A, 1, 0x55,		//Pixel read=565, write=565.
-		};
-		static const uint8_t wake_on[] PROGMEM = {
-			0x11, 0, //Sleep Out
-			TFTLCD_DELAY8, 150,
-			0x29, 0, //Display On
-		};
-		init_table(&reset_off, sizeof(reset_off));
-		init_table(table8_ads, table_size); //can change PIXFMT
-		init_table(&wake_on, sizeof(wake_on));
-	}
+
+	static const uint8_t reset_off[] PROGMEM = {
+		0x01, 0,			//Soft Reset
+		TFTLCD_DELAY8, 150, // .kbv will power up with ONLY reset, sleep out, display on
+		0x28, 0,			//Display Off
+		0x3A, 1, 0x55,		//Pixel read=565, write=565.
+	};
+	static const uint8_t wake_on[] PROGMEM = {
+		0x11, 0, //Sleep Out
+		TFTLCD_DELAY8, 150,
+		0x29, 0, //Display On
+	};
+	init_table(&reset_off, sizeof(reset_off));
+	init_table(table8_ads, table_size); //can change PIXFMT
+	init_table(&wake_on, sizeof(wake_on));
+
 	setRotation(0); //PORTRAIT
 	invertDisplay(false);
 }
