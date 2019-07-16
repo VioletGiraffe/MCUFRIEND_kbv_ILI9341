@@ -368,90 +368,18 @@ void MCUFRIEND_kbv::setRotation(uint8_t r)
 	// cope with 9320 variants
 	else
 	{
-		switch (_lcd_ID)
-		{
-#if defined(SUPPORT_9225)
-		case 0x9225:
-			_SC = 0x37, _EC = 0x36, _SP = 0x39, _EP = 0x38;
-			_MC = 0x20, _MP = 0x21, _MW = 0x22;
-			GS = (val & 0x80) ? (1 << 9) : 0;
-			SS_v = (val & 0x40) ? (1 << 8) : 0;
-			WriteCmdData(0x01, GS | SS_v | 0x001C); // set Driver Output Control
-			goto common_ORG;
-#endif
-#if defined(SUPPORT_0139) || defined(SUPPORT_0154)
-#ifdef SUPPORT_0139
-		case 0x0139:
-			_SC = 0x46, _EC = 0x46, _SP = 0x48, _EP = 0x47;
-			goto common_S6D;
-#endif
-#ifdef SUPPORT_0154
-		case 0x0154:
-			_SC = 0x37, _EC = 0x36, _SP = 0x39, _EP = 0x38;
-			goto common_S6D;
-#endif
-		common_S6D:
-			_MC = 0x20, _MP = 0x21, _MW = 0x22;
-			GS = (val & 0x80) ? (1 << 9) : 0;
-			SS_v = (val & 0x40) ? (1 << 8) : 0;
-			// S6D0139 requires NL = 0x27,  S6D0154 NL = 0x28
-			WriteCmdData(0x01, GS | SS_v | ((_lcd_ID == 0x0139) ? 0x27 : 0x28));
-			goto common_ORG;
-#endif
-		case 0x5420:
-		case 0x7793:
-		case 0x9326:
-		case 0xB509:
-			_MC = 0x200, _MP = 0x201, _MW = 0x202, _SC = 0x210, _EC = 0x211, _SP = 0x212, _EP = 0x213;
-			GS = (val & 0x80) ? (1 << 15) : 0;
-			uint16_t NL;
-			NL = ((432 / 8) - 1) << 9;
-			if (_lcd_ID == 0x9326 || _lcd_ID == 0x5420)
-				NL >>= 1;
-			WriteCmdData(0x400, GS | NL);
-			goto common_SS;
-		default:
-			_MC = 0x20, _MP = 0x21, _MW = 0x22, _SC = 0x50, _EC = 0x51, _SP = 0x52, _EP = 0x53;
-			GS = (val & 0x80) ? (1 << 15) : 0;
-			WriteCmdData(0x60, GS | 0x2700); // Gate Scan Line (0xA700)
-		common_SS:
-			SS_v = (val & 0x40) ? (1 << 8) : 0;
-			WriteCmdData(0x01, SS_v); // set Driver Output Control
-		common_ORG:
-			ORG = (val & 0x20) ? (1 << 3) : 0;
-#ifdef SUPPORT_8230
-			if (_lcd_ID == 0x8230)
-			{ // UC8230 has strange BGR and READ_BGR behaviour
-				if (rotation == 1 || rotation == 2)
-				{
-					val ^= 0x08; // change BGR bit for LANDSCAPE and PORTRAIT_REV
-				}
-			}
-#endif
-			if (val & 0x08)
-				ORG |= 0x1000; //BGR
-			_lcd_madctl = ORG | 0x0030;
-			WriteCmdData(0x03, _lcd_madctl); // set GRAM write direction and BGR=1.
-			break;
-#ifdef SUPPORT_1289
-		case 0x1289:
-			_MC = 0x4E, _MP = 0x4F, _MW = 0x22, _SC = 0x44, _EC = 0x44, _SP = 0x45, _EP = 0x46;
-			if (rotation & 1)
-				val ^= 0xD0;								 // exchange Landscape modes
-			GS = (val & 0x80) ? (1 << 14) : 0;				 //called TB (top-bottom), CAD=0
-			SS_v = (val & 0x40) ? (1 << 9) : 0;				 //called RL (right-left)
-			ORG = (val & 0x20) ? (1 << 3) : 0;				 //called AM
-			_lcd_drivOut = GS | SS_v | (REV << 13) | 0x013F; //REV=0, BGR=0, MUX=319
-			if (val & 0x08)
-				_lcd_drivOut |= 0x0800;		  //BGR
-			WriteCmdData(0x01, _lcd_drivOut); // set Driver Output Control
-			if (is9797)
-				WriteCmdData(0x11, ORG | 0x4C30);
-			else								  // DFM=2, DEN=1, WM=1, TY=0
-				WriteCmdData(0x11, ORG | 0x6070); // DFM=3, EN=0, TY=1
-			break;
-#endif
-		}
+		_MC = 0x20, _MP = 0x21, _MW = 0x22, _SC = 0x50, _EC = 0x51, _SP = 0x52, _EP = 0x53;
+		GS = (val & 0x80) ? (1 << 15) : 0;
+		WriteCmdData(0x60, GS | 0x2700); // Gate Scan Line (0xA700)
+	common_SS:
+		SS_v = (val & 0x40) ? (1 << 8) : 0;
+		WriteCmdData(0x01, SS_v); // set Driver Output Control
+	common_ORG:
+		ORG = (val & 0x20) ? (1 << 3) : 0;
+		if (val & 0x08)
+			ORG |= 0x1000; //BGR
+		_lcd_madctl = ORG | 0x0030;
+		WriteCmdData(0x03, _lcd_madctl); // set GRAM write direction and BGR=1.
 	}
 	if ((rotation & 1) && ((_lcd_capable & MV_AXIS) == 0))
 	{
@@ -466,13 +394,6 @@ void MCUFRIEND_kbv::setRotation(uint8_t r)
 
 void MCUFRIEND_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
-	// MCUFRIEND just plots at edge if you try to write outside of the box:
-	if (x < 0 || y < 0 || x >= width() || y >= height())
-		return;
-#if defined(SUPPORT_9488_555)
-	if (is555)
-		color = color565_to_555(color);
-#endif
 	setAddrWindow(x, y, x, y);
 	//    CS_ACTIVE; WriteCmd(_MW); write16(color); CS_IDLE; //-0.01s +98B
 
@@ -481,30 +402,6 @@ void MCUFRIEND_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 void MCUFRIEND_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
-#if defined(OFFSET_9327)
-	if (_lcd_ID == 0x9327)
-	{
-		if (rotation == 2)
-			y += OFFSET_9327, y1 += OFFSET_9327;
-		if (rotation == 3)
-			x += OFFSET_9327, x1 += OFFSET_9327;
-	}
-#endif
-#if 1
-	if (_lcd_ID == 0x1526 && (rotation & 1))
-	{
-		int16_t dx = x1 - x, dy = y1 - y;
-		if (dy == 0)
-		{
-			y1++;
-		}
-		else if (dx == 0)
-		{
-			x1 += dy;
-			y1 -= dy;
-		}
-	}
-#endif
 	if (_lcd_capable & MIPI_DCS_REV1)
 	{
 		WriteCmdParam4(_SC, x >> 8, x, x1 >> 8, x1); //Start column instead of _MC
@@ -534,29 +431,11 @@ void MCUFRIEND_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 void MCUFRIEND_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
 {
 	int16_t end;
-#if defined(SUPPORT_9488_555)
-	if (is555)
-		color = color565_to_555(color);
-#endif
-	if (w < 0)
-	{
-		w = -w;
-		x -= w;
-	} //+ve w
 	end = x + w;
-	if (x < 0)
-		x = 0;
 	if (end > width())
 		end = width();
 	w = end - x;
-	if (h < 0)
-	{
-		h = -h;
-		y -= h;
-	} //+ve h
 	end = y + h;
-	if (y < 0)
-		y = 0;
 	if (end > height())
 		end = height();
 	h = end - y;
@@ -573,74 +452,11 @@ void MCUFRIEND_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_
 	while (h-- > 0)
 	{
 		end = w;
-#if USING_16BIT_BUS
-#if defined(__MK66FX1M0__) //180MHz M4
-#define STROBE_16BIT \
-	{                \
-		WR_ACTIVE4;  \
-		WR_ACTIVE;   \
-		WR_IDLE4;    \
-		WR_IDLE;     \
-	}					   //56ns
-#elif defined(__SAM3X8E__) //84MHz M3
-#define STROBE_16BIT \
-	{                \
-		WR_ACTIVE4;  \
-		WR_ACTIVE2;  \
-		WR_IDLE4;    \
-		WR_IDLE2;    \
-	} //286ns ?ILI9486
-//#define STROBE_16BIT {WR_ACTIVE4;WR_ACTIVE;WR_IDLE4;WR_IDLE;} //238ns SSD1289
-//#define STROBE_16BIT {WR_ACTIVE2;WR_ACTIVE;WR_IDLE2;}      //119ns RM68140
-#else //16MHz AVR
-#define STROBE_16BIT \
-	{                \
-		WR_ACTIVE;   \
-		WR_ACTIVE;   \
-		WR_IDLE;     \
-	} //375ns ?ILI9486
-#endif
-		write_16(color); //we could just do the strobe
-		lo = end & 7;
-		hi = end >> 3;
-		if (hi)
-			do
-			{
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-				STROBE_16BIT;
-			} while (--hi > 0);
-		while (lo-- > 0)
+		do
 		{
-			STROBE_16BIT;
-		}
-#else
-#if defined(SUPPORT_1289)
-		if (is9797)
-		{
-			uint8_t r = color565_to_r(color);
-			uint8_t g = color565_to_g(color);
-			uint8_t b = color565_to_b(color);
-			do
-			{
-				write8(r);
-				write8(g);
-				write8(b);
-			} while (--end != 0);
-		}
-		else
-#endif
-			do
-			{
-				write8(hi);
-				write8(lo);
-			} while (--end != 0);
-#endif
+			write8(hi);
+			write8(lo);
+		} while (--end != 0);
 	}
 	CS_IDLE;
 	if (!(_lcd_capable & MIPI_DCS_REV1) || ((_lcd_ID == 0x1526) && (rotation & 1)))
