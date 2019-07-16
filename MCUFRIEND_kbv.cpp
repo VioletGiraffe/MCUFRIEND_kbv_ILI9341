@@ -1,39 +1,5 @@
-//#define SUPPORT_0139              //S6D0139 +280 bytes
-//#define SUPPORT_0154              //S6D0154 +320 bytes
-//#define SUPPORT_1289              //SSD1289,SSD1297 (ID=0x9797) +626 bytes, 0.03s
-//#define SUPPORT_1580              //R61580 Untested
-//#define SUPPORT_1963              //only works with 16BIT bus anyway
-//#define SUPPORT_4532              //LGDP4532 +120 bytes.  thanks Leodino
-//#define SUPPORT_4535              //LGDP4535 +180 bytes
-//#define SUPPORT_68140             //RM68140 +52 bytes defaults to PIXFMT=0x55
-//#define SUPPORT_7735
-//#define SUPPORT_7781              //ST7781 +172 bytes
-//#define SUPPORT_8230              //UC8230 +118 bytes
-//#define SUPPORT_8347D             //HX8347-D, HX8347-G, HX8347-I, HX8367-A +520 bytes, 0.27s
-//#define SUPPORT_8347A             //HX8347-A +500 bytes, 0.27s
-//#define SUPPORT_8352A             //HX8352A +486 bytes, 0.27s
-//#define SUPPORT_8352B             //HX8352B
-//#define SUPPORT_8357D_GAMMA       //monster 34 byte 
-//#define SUPPORT_9163              //
-//#define SUPPORT_9225              //ILI9225-B, ILI9225-G ID=0x9225, ID=0x9226, ID=0x6813 +380 bytes
-//#define SUPPORT_9326_5420         //ILI9326, SPFD5420 +246 bytes
-//#define SUPPORT_9342              //costs +114 bytes
-//#define SUPPORT_9806              //UNTESTED
-//#define SUPPORT_9488_555          //costs +230 bytes, 0.03s / 0.19s
-//#define SUPPORT_B509_7793         //R61509, ST7793 +244 bytes
-//#define OFFSET_9327 32            //costs about 103 bytes, 0.08s
-
 #include "MCUFRIEND_kbv.h"
-#if defined(USE_SERIAL)
-#include "utility/mcufriend_serial.h"
- //uint8_t running;
-#elif defined(__MBED__)
-#include "utility/mcufriend_mbed.h"
-#elif defined(__CC_ARM) || defined(__CROSSWORKS_ARM)
-#include "utility/mcufriend_keil.h"
-#else
 #include "utility/mcufriend_shield.h"
-#endif
 
 #define MIPI_DCS_REV1   (1<<0)
 #define AUTO_READINC    (1<<1)
@@ -116,7 +82,7 @@ static void WriteCmdParamN(uint16_t cmd, int8_t N, uint8_t * block)
     CS_ACTIVE;
     WriteCmd(cmd);
     while (N-- > 0) {
-        uint8_t u8 = *block++;
+        const uint8_t u8 = *block++;
         write8(u8);
     }
     CS_IDLE;
@@ -124,8 +90,7 @@ static void WriteCmdParamN(uint16_t cmd, int8_t N, uint8_t * block)
 
 static inline void WriteCmdParam4(uint8_t cmd, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4)
 {
-    uint8_t d[4];
-    d[0] = d1, d[1] = d2, d[2] = d3, d[3] = d4;
+    uint8_t d[4] = {d1, d2, d3, d4};
     WriteCmdParamN(cmd, 4, d);
 }
 
@@ -151,7 +116,6 @@ static uint16_t read16bits(void)
 uint16_t MCUFRIEND_kbv::readReg(uint16_t reg, int8_t index)
 {
     uint16_t ret;
-    uint8_t lo;
     CS_ACTIVE;
     WriteCmd(reg);
     setReadDir();
@@ -251,8 +215,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t 
 
 void MCUFRIEND_kbv::setRotation(uint8_t r)
 {
-    uint16_t GS, SS_v, ORG;
-    uint8_t val, d[3];
+    uint8_t val;
     rotation = r & 3;           // just perform the operation ourselves on the protected variables
     _width = (rotation & 1) ? HEIGHT : WIDTH;
     _height = (rotation & 1) ? WIDTH : HEIGHT;
@@ -279,7 +242,6 @@ void MCUFRIEND_kbv::setRotation(uint8_t r)
     if (_lcd_capable & MIPI_DCS_REV1) {
       common_MC:
         _MC = 0x2A, _MP = 0x2B, _MW = 0x2C, _SC = 0x2A, _EC = 0x2A, _SP = 0x2B, _EP = 0x2B;
-      common_BGR:
         WriteCmdParamN(0x36, 1, &val);
         _lcd_madctl = val;
 //	    if (_lcd_ID	== 0x1963) WriteCmdParamN(0x13, 0, NULL);   //NORMAL mode
@@ -408,12 +370,10 @@ void MCUFRIEND_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 {
     int16_t bfa = HEIGHT - top - scrollines;  // bottom fixed area
     int16_t vsp;
-    int16_t sea = top;
     if (offset <= -scrollines || offset >= scrollines) offset = 0; //valid scroll
 	vsp = top + offset; // vertical start position
     if (offset < 0)
         vsp += scrollines;          //keep in unsigned range
-    sea = top + scrollines - 1;
     if (_lcd_capable & MIPI_DCS_REV1) {
         uint8_t d[6];           // for multi-byte parameters
 /*
@@ -454,7 +414,6 @@ void MCUFRIEND_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 
 void MCUFRIEND_kbv::invertDisplay(boolean i)
 {
-    uint8_t val;
     _lcd_rev = ((_lcd_capable & REV_SCREEN) != 0) ^ i;
     if (_lcd_capable & MIPI_DCS_REV1) {
         WriteCmdParamN(_lcd_rev ? 0x21 : 0x20, 0, NULL);
@@ -485,21 +444,6 @@ static void init_table(const void *table, int16_t size)
             WriteCmdParamN(cmd, len, dat);
         }
         size -= len + 2;
-    }
-}
-
-static void init_table16(const void *table, int16_t size)
-{
-    uint16_t *p = (uint16_t *) table;
-    while (size > 0) {
-        uint16_t cmd = pgm_read_word(p++);
-        uint16_t d = pgm_read_word(p++);
-        if (cmd == TFTLCD_DELAY)
-            delay(d);
-        else {
-			writecmddata(cmd, d);                      //static function
-        }
-        size -= 2 * sizeof(int16_t);
     }
 }
 
