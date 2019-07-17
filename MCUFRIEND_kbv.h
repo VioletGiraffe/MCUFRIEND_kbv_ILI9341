@@ -51,6 +51,7 @@ class MCUFRIEND_kbv : public Adafruit_GFX {
 
 	private:
 	uint16_t _lcd_ID, _lcd_rev, _lcd_madctl, _lcd_drivOut, _MC, _MP, _MW, _SC, _EC, _SP, _EP;
+	bool _resetPerformed = false;
 };
 
 // New color definitions.  thanks to Bodmer

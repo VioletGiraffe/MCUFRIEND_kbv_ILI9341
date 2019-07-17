@@ -64,6 +64,8 @@ void MCUFRIEND_kbv::reset(void)
 	RESET_IDLE;
 	delay(100);
 	WriteCmdData(0xB0, 0x0000); //R61520 needs this to read ID
+
+	_resetPerformed = true;
 }
 
 void MCUFRIEND_kbv::WriteCmdData(uint16_t cmd, uint16_t dat)
@@ -78,7 +80,7 @@ static void WriteCmdParamN(uint16_t cmd, int8_t N, uint8_t *block)
 {
 	CS_ACTIVE;
 	WriteCmd(cmd);
-	while (N-- > 0)
+	for (; N > 0; --N)
 	{
 		uint8_t u8 = *block++;
 		write8(u8);
@@ -146,13 +148,15 @@ uint32_t MCUFRIEND_kbv::readReg40(uint16_t reg)
 
 uint16_t MCUFRIEND_kbv::readID(void)
 {
+	if (!_resetPerformed)
+		reset();
+
 	const uint16_t ret = readReg32(0xD3); //for ILI9488, 9486, 9340, 9341
 	const uint8_t msb = ret >> 8;
-	if (msb == 0x93 || msb == 0x94 || msb == 0x98 || msb == 0x77 || msb == 0x16)
-		return ret; //0x9488, 9486, 9340, 9341, 7796
-	
-	Serial.println(F("Invalid controller ID"));
-	return 0;
+	if (!(msb == 0x93 || msb == 0x94 || msb == 0x98 || msb == 0x77 || msb == 0x16)) //0x9488, 9486, 9340, 9341, 7796
+		Serial.println(F("Invalid controller ID"));
+
+	return ret;
 }
 
 // independent cursor and window registers.   S6D0154, ST7781 increments.  ILI92320/5 do not.
@@ -344,13 +348,10 @@ void MCUFRIEND_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_
 	CS_ACTIVE;
 	WriteCmd(_MW);
 	if (h > w)
-	{
-		end = h;
-		h = w;
-		w = end;
-	}
+		std::swap(h, w);
+		
 	uint8_t hi = color >> 8, lo = color & 0xFF;
-	while (h-- > 0)
+	for (; h > 0; --h)
 	{
 		end = w;
 		do
@@ -379,7 +380,7 @@ static void pushColors_any(uint16_t cmd, uint8_t *block, int16_t n, bool first, 
 	if (!isconst && !isbigend)
 	{
 		uint16_t *block16 = (uint16_t *)block;
-		while (n-- > 0)
+		for (; n > 0; --n)
 		{
 			color = *block16++;
 			write16(color);
@@ -387,7 +388,7 @@ static void pushColors_any(uint16_t cmd, uint8_t *block, int16_t n, bool first, 
 	}
 	else
 
-		while (n-- > 0)
+		for (; n > 0; --n)
 		{
 			if (isconst)
 			{
