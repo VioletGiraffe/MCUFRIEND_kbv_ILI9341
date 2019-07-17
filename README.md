@@ -16,6 +16,6 @@ Compiler flags: -std=c++17 -O2 -fno-threadsafe-statics
 * RAM used: 3428 vs. 3436 bytes
 
 Compiler flags: -std=c++17 -O3 -fno-threadsafe-statics
-* speed test: 1.93 sec vs. 2.05 (original)
+* speed test: 1.82 sec vs. 2.05 (original)
 * flash size used: 47148 vs. 56128 bytes
 * RAM used: 3428 vs. 3436 bytes
