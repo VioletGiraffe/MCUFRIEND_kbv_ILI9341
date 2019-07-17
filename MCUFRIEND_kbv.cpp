@@ -22,6 +22,8 @@
 #define USING_16BIT_BUS 0
 #endif
 
+constexpr uint16_t _lcd_capable = AUTO_READINC | MIPI_DCS_REV1 | MV_AXIS | READ_24BITS;
+
 MCUFRIEND_kbv::MCUFRIEND_kbv(int CS, int RS, int WR, int RD, int _RST) : Adafruit_GFX(240, 320)
 {
 	// we can not access GPIO pins until AHB has been enabled.
@@ -47,15 +49,6 @@ constexpr uint8_t color565_to_b(uint16_t color)
 {
 	return ((color & 0x001F) << 3); // transform to bbbbbxxx
 }
-static void write24(uint16_t color)
-{
-	uint8_t r = color565_to_r(color);
-	uint8_t g = color565_to_g(color);
-	uint8_t b = color565_to_b(color);
-	write8(r);
-	write8(g);
-	write8(b);
-}
 
 void MCUFRIEND_kbv::reset(void)
 {
@@ -73,15 +66,13 @@ void MCUFRIEND_kbv::reset(void)
 	WriteCmdData(0xB0, 0x0000); //R61520 needs this to read ID
 }
 
-static void writecmddata(uint16_t cmd, uint16_t dat)
+void MCUFRIEND_kbv::WriteCmdData(uint16_t cmd, uint16_t dat)
 {
 	CS_ACTIVE;
 	WriteCmd(cmd);
 	WriteData(dat);
 	CS_IDLE;
 }
-
-void MCUFRIEND_kbv::WriteCmdData(uint16_t cmd, uint16_t dat) { writecmddata(cmd, dat); }
 
 static void WriteCmdParamN(uint16_t cmd, int8_t N, uint8_t *block)
 {
@@ -97,8 +88,7 @@ static void WriteCmdParamN(uint16_t cmd, int8_t N, uint8_t *block)
 
 static inline void WriteCmdParam4(uint8_t cmd, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4)
 {
-	uint8_t d[4];
-	d[0] = d1, d[1] = d2, d[2] = d3, d[3] = d4;
+	uint8_t d[4] = {d1, d2, d3, d4};
 	WriteCmdParamN(cmd, 4, d);
 }
 
@@ -124,7 +114,6 @@ static uint16_t read16bits(void)
 uint16_t MCUFRIEND_kbv::readReg(uint16_t reg, int8_t index)
 {
 	uint16_t ret;
-	uint8_t lo;
 	CS_ACTIVE;
 	WriteCmd(reg);
 	setReadDir();
@@ -157,101 +146,13 @@ uint32_t MCUFRIEND_kbv::readReg40(uint16_t reg)
 
 uint16_t MCUFRIEND_kbv::readID(void)
 {
-	uint16_t ret, ret2;
-	uint8_t msb;
-	ret = readReg(0);  //forces a reset() if called before begin()
-	if (ret == 0x5408) //the SPFD5408 fails the 0xD3D3 test.
-		return 0x5408;
-	if (ret == 0x5420) //the SPFD5420 fails the 0xD3D3 test.
-		return 0x5420;
-	if (ret == 0x8989) //SSD1289 is always 8989
-		return 0x1289;
-	ret = readReg(0x67); //HX8347-A
-	if (ret == 0x4747)
-		return 0x8347;
-	//#if defined(SUPPORT_1963) && USING_16BIT_BUS
-	ret = readReg32(0xA1); //SSD1963: [01 57 61 01]
-	if (ret == 0x6101)
-		return 0x1963;
-	if (ret == 0xFFFF) //R61526: [xx FF FF FF]
-		return 0x1526; //subsequent begin() enables Command Access
-					   //    if (ret == 0xFF00)          //R61520: [xx FF FF 00]
-					   //        return 0x1520;          //subsequent begin() enables Command Access
-					   //#endif
-	ret = readReg40(0xBF);
-	if (ret == 0x8357) //HX8357B: [xx 01 62 83 57 FF]
-		return 0x8357;
-	if (ret == 0x9481) //ILI9481: [xx 02 04 94 81 FF]
-		return 0x9481;
-	if (ret == 0x1511) //?R61511: [xx 02 04 15 11] not tested yet
-		return 0x1511;
-	if (ret == 0x1520) //?R61520: [xx 01 22 15 20]
-		return 0x1520;
-	if (ret == 0x1526) //?R61526: [xx 01 22 15 26]
-		return 0x1526;
-	if (ret == 0x1581) //R61581:  [xx 01 22 15 81]
-		return 0x1581;
-	if (ret == 0x1400) //?RM68140:[xx FF 68 14 00] not tested yet
-		return 0x6814;
-	ret = readReg32(0xD4);
-	if (ret == 0x5310) //NT35310: [xx 01 53 10]
-		return 0x5310;
-	ret = readReg32(0xD7);
-	if (ret == 0x8031) //weird unknown from BangGood [xx 20 80 31] PrinceCharles
-		return 0x8031;
-	ret = readReg40(0xEF); //ILI9327: [xx 02 04 93 27 FF]
-	if (ret == 0x9327)
-		return 0x9327;
-	ret = readReg32(0xFE) >> 8; //weird unknown from BangGood [04 20 53]
-	if (ret == 0x2053)
-		return 0x2053;
-	uint32_t ret32 = readReg32(0x04);
-	msb = ret32 >> 16;
-	ret = ret32;
-	//    if (msb = 0x38 && ret == 0x8000) //unknown [xx 38 80 00] with D3 = 0x1602
-	if (msb == 0x00 && ret == 0x8000)
-	{ //HX8357-D [xx 00 80 00]
-#if 1
-		uint8_t cmds[] = {0xFF, 0x83, 0x57};
-		pushCommand(0xB9, cmds, 3);
-		msb = readReg(0xD0);
-		if (msb == 0x99)
-			return 0x0099; //HX8357-D from datasheet
-		if (msb == 0x90)   //HX8357-C undocumented
-#endif
-			return 0x9090; //BIG CHANGE: HX8357-D was 0x8357
-	}
-	//    if (msb == 0xFF && ret == 0xFFFF) //R61526 [xx FF FF FF]
-	//        return 0x1526;          //subsequent begin() enables Command Access
-	if (ret == 0x1526) //R61526 [xx 06 15 26] if I have written NVM
-		return 0x1526; //subsequent begin() enables Command Access
-	if (ret == 0x89F0) //ST7735S: [xx 7C 89 F0]
-		return 0x7735;
-	if (ret == 0x8552) //ST7789V: [xx 85 85 52]
-		return 0x7789;
-	if (ret == 0xAC11) //?unknown [xx 61 AC 11]
-		return 0xAC11;
-	ret32 = readReg32(0xD3); //[xx 91 63 00]
-	ret = ret32 >> 8;
-	if (ret == 0x9163)
-		return ret;
-	ret = readReg32(0xD3); //for ILI9488, 9486, 9340, 9341
-	msb = ret >> 8;
+	const uint16_t ret = readReg32(0xD3); //for ILI9488, 9486, 9340, 9341
+	const uint8_t msb = ret >> 8;
 	if (msb == 0x93 || msb == 0x94 || msb == 0x98 || msb == 0x77 || msb == 0x16)
 		return ret; //0x9488, 9486, 9340, 9341, 7796
-	if (ret == 0x00D3 || ret == 0xD3D3)
-		return ret;	//16-bit write-only bus
-					   /*
-	msb = 0x12;                 //read 3rd,4th byte.  does not work in parallel
-	pushCommand(0xD9, &msb, 1);
-	ret2 = readReg(0xD3);
-    msb = 0x13;
-	pushCommand(0xD9, &msb, 1);
-	ret = (ret2 << 8) | readReg(0xD3);
-//	if (ret2 == 0x93)
-    	return ret2;
-*/
-	return readReg(0); //0154, 7783, 9320, 9325, 9335, B505, B509
+	
+	Serial.println(F("Invalid controller ID"));
+	return 0;
 }
 
 // independent cursor and window registers.   S6D0154, ST7781 increments.  ILI92320/5 do not.
@@ -259,12 +160,12 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 {
 	uint16_t ret, dummy, _MR = _MW;
 	int16_t n = w * h, row = 0, col = 0;
-	uint8_t r, g, b, tmp;
+	uint8_t r, g, b;
 
 	setAddrWindow(x, y, x + w - 1, y + h - 1);
 	while (n > 0)
 	{
-		if (!(_lcd_capable & MIPI_DCS_REV1))
+		if constexpr (!(_lcd_capable & MIPI_DCS_REV1))
 		{
 			WriteCmdData(_MC, x + col);
 			WriteCmdData(_MP, y + row);
@@ -272,11 +173,11 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 		CS_ACTIVE;
 		WriteCmd(_MR);
 		setReadDir();
-		if (_lcd_capable & READ_NODUMMY)
+		if constexpr (_lcd_capable & READ_NODUMMY)
 		{
 			;
 		}
-		else if ((_lcd_capable & MIPI_DCS_REV1))
+		else if constexpr ((_lcd_capable & MIPI_DCS_REV1))
 		{
 			READ_8(r);
 		}
@@ -287,12 +188,12 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 
 		while (n)
 		{
-			if (_lcd_capable & READ_24BITS)
+			if constexpr (_lcd_capable & READ_24BITS)
 			{
 				READ_8(r);
 				READ_8(g);
 				READ_8(b);
-				if (_lcd_capable & READ_BGR)
+				if constexpr (_lcd_capable & READ_BGR)
 					ret = color565(b, g, r);
 				else
 					ret = color565(r, g, b);
@@ -300,9 +201,9 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 			else
 			{
 				READ_16(ret);
-				if (_lcd_capable & READ_LOWHIGH)
+				if constexpr (_lcd_capable & READ_LOWHIGH)
 					ret = (ret >> 8) | (ret << 8);
-				if (_lcd_capable & READ_BGR)
+				if constexpr (_lcd_capable & READ_BGR)
 					ret = (ret & 0x07E0) | (ret >> 11) | (ret << 11);
 			}
 #if defined(SUPPORT_9488_555)
@@ -311,7 +212,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 #endif
 			*block++ = ret;
 			n--;
-			if (!(_lcd_capable & AUTO_READINC))
+			if constexpr (!(_lcd_capable & AUTO_READINC))
 				break;
 		}
 		if (++col >= w)
@@ -324,7 +225,7 @@ int16_t MCUFRIEND_kbv::readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w
 		CS_IDLE;
 		setWriteDir();
 	}
-	if (!(_lcd_capable & MIPI_DCS_REV1))
+	if constexpr (!(_lcd_capable & MIPI_DCS_REV1))
 		setAddrWindow(0, 0, width() - 1, height() - 1);
 	return 0;
 }
@@ -351,13 +252,13 @@ void MCUFRIEND_kbv::setRotation(uint8_t r)
 		val = 0xF8; //MY=1, MX=1, MV=1, ML=1, BGR=1
 		break;
 	}
-	if (_lcd_capable & INVERT_GS)
+	if constexpr (_lcd_capable & INVERT_GS)
 		val ^= 0x80;
-	if (_lcd_capable & INVERT_SS)
+	if constexpr (_lcd_capable & INVERT_SS)
 		val ^= 0x40;
-	if (_lcd_capable & INVERT_RGB)
+	if constexpr (_lcd_capable & INVERT_RGB)
 		val ^= 0x08;
-	if (_lcd_capable & MIPI_DCS_REV1)
+	if constexpr (_lcd_capable & MIPI_DCS_REV1)
 	{
 	common_MC:
 		_MC = 0x2A, _MP = 0x2B, _MW = 0x2C, _SC = 0x2A, _EC = 0x2A, _SP = 0x2B, _EP = 0x2B;
@@ -402,7 +303,7 @@ void MCUFRIEND_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 void MCUFRIEND_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
-	if (_lcd_capable & MIPI_DCS_REV1)
+	if constexpr (_lcd_capable & MIPI_DCS_REV1)
 	{
 		WriteCmdParam4(_SC, x >> 8, x, x1 >> 8, x1); //Start column instead of _MC
 		WriteCmdParam4(_SP, y >> 8, y, y1 >> 8, y1); //
@@ -413,7 +314,7 @@ void MCUFRIEND_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 		WriteCmdData(_MP, y);
 		if (!(x == x1 && y == y1))
 		{ //only need MC,MP for drawPixel
-			if (_lcd_capable & XSA_XEA_16BIT)
+			if constexpr (_lcd_capable & XSA_XEA_16BIT)
 			{
 				if (rotation & 1)
 					y1 = y = (y1 << 8) | y;
@@ -459,7 +360,7 @@ void MCUFRIEND_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_
 		} while (--end != 0);
 	}
 	CS_IDLE;
-	if (!(_lcd_capable & MIPI_DCS_REV1) || ((_lcd_ID == 0x1526) && (rotation & 1)))
+	if constexpr (!(_lcd_capable & MIPI_DCS_REV1))
 		setAddrWindow(0, 0, width() - 1, height() - 1);
 }
 
@@ -537,7 +438,7 @@ void MCUFRIEND_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 	if (offset < 0)
 		vsp += scrollines; //keep in unsigned range
 	sea = top + scrollines - 1;
-	if (_lcd_capable & MIPI_DCS_REV1)
+	if constexpr (_lcd_capable & MIPI_DCS_REV1)
 	{
 		uint8_t d[6];	// for multi-byte parameters
 						 /*
@@ -564,90 +465,30 @@ void MCUFRIEND_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 		d[0] = vsp >> 8; //VSP
 		d[1] = vsp;
 		WriteCmdParamN(0x37, 2, d);
-		if (offset == 0 && (_lcd_capable & MIPI_DCS_REV1))
+		if constexpr (_lcd_capable & MIPI_DCS_REV1)
 		{
-			WriteCmdParamN(0x13, 0, NULL); //NORMAL i.e. disable scroll
+			if (offset == 0)
+				WriteCmdParamN(0x13, 0, NULL); //NORMAL i.e. disable scroll
 		}
 		return;
 	}
 	// cope with 9320 style variants:
-	switch (_lcd_ID)
-	{
-	case 0x7783:
-		WriteCmdData(0x61, _lcd_rev); //!NDL, !VLE, REV
-		WriteCmdData(0x6A, vsp);	  //VL#
-		break;
-#ifdef SUPPORT_0139
-	case 0x0139:
-		WriteCmdData(0x07, 0x0213 | (_lcd_rev << 2)); //VLE1=1, GON=1, REV=x, D=3
-		WriteCmdData(0x41, vsp);					  //VL# check vsp
-		break;
-#endif
-#if defined(SUPPORT_0154) || defined(SUPPORT_9225) //thanks tongbajiel
-	case 0x9225:
-	case 0x0154:
-		WriteCmdData(0x31, sea);	   //SEA
-		WriteCmdData(0x32, top);	   //SSA
-		WriteCmdData(0x33, vsp - top); //SST
-		break;
-#endif
-#ifdef SUPPORT_1289
-	case 0x1289:
-		WriteCmdData(0x41, vsp); //VL#
-		break;
-#endif
-	case 0x5420:
-	case 0x7793:
-	case 0x9326:
-	case 0xB509:
-		WriteCmdData(0x401, (1 << 1) | _lcd_rev); //VLE, REV
-		WriteCmdData(0x404, vsp);				  //VL#
-		break;
-	default:
-		// 0x6809, 0x9320, 0x9325, 0x9335, 0xB505 can only scroll whole screen
-		WriteCmdData(0x61, (1 << 1) | _lcd_rev); //!NDL, VLE, REV
-		WriteCmdData(0x6A, vsp);				 //VL#
-		break;
-	}
+	// 0x6809, 0x9320, 0x9325, 0x9335, 0xB505 can only scroll whole screen
+	WriteCmdData(0x61, (1 << 1) | _lcd_rev); //!NDL, VLE, REV
+	WriteCmdData(0x6A, vsp);				 //VL#
 }
 
 void MCUFRIEND_kbv::invertDisplay(boolean i)
 {
 	uint8_t val;
 	_lcd_rev = ((_lcd_capable & REV_SCREEN) != 0) ^ i;
-	if (_lcd_capable & MIPI_DCS_REV1)
+	if constexpr (_lcd_capable & MIPI_DCS_REV1)
 	{
 		WriteCmdParamN(_lcd_rev ? 0x21 : 0x20, 0, NULL);
 		return;
 	}
 	// cope with 9320 style variants:
-	switch (_lcd_ID)
-	{
-#ifdef SUPPORT_0139
-	case 0x0139:
-#endif
-	case 0x9225: //REV is in reg(0x07) like Samsung
-	case 0x0154:
-		WriteCmdData(0x07, 0x13 | (_lcd_rev << 2)); //.kbv kludge
-		break;
-#ifdef SUPPORT_1289
-	case 0x1289:
-		_lcd_drivOut &= ~(1 << 13);
-		if (_lcd_rev)
-			_lcd_drivOut |= (1 << 13);
-		WriteCmdData(0x01, _lcd_drivOut);
-		break;
-#endif
-	case 0x5420:
-	case 0x7793:
-	case 0x9326:
-	case 0xB509:
-		WriteCmdData(0x401, (1 << 1) | _lcd_rev); //.kbv kludge VLE
-		break;
-	default:
-		WriteCmdData(0x61, _lcd_rev);
-		break;
-	}
+	WriteCmdData(0x61, _lcd_rev);
 }
 
 #define TFTLCD_DELAY 0xFFFF
@@ -687,7 +528,7 @@ void MCUFRIEND_kbv::begin(uint16_t ID)
 	_lcd_xor = 0;
 	_lcd_ID = ID;
 	
-	_lcd_capable = AUTO_READINC | MIPI_DCS_REV1 | MV_AXIS | READ_24BITS;
+	
 	static const uint8_t ILI9341_regValues_2_4[] PROGMEM = {
 		// BOE 2.4"
 		0xF6,

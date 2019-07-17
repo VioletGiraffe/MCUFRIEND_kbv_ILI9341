@@ -930,4 +930,4 @@ static void setReadDir()
 #endif
 #define CTL_INIT()   { GPIO_INIT(); RD_OUTPUT; WR_OUTPUT; CD_OUTPUT; CS_OUTPUT; RESET_OUTPUT; }
 #define WriteCmd(x)  { CD_COMMAND; write16(x); CD_DATA; }
-#define WriteData(x) { write16(x); }
+#define WriteData(x) write16(x)
